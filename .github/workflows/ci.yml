@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: theater
+          POSTGRES_PASSWORD: theater
+          POSTGRES_DB: theater_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U theater"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgresql+asyncpg://theater:theater@localhost:5432/theater_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --frozen
+      - name: Ruff
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+      - name: Mypy
+        run: uv run mypy
+      - name: Pytest
+        run: uv run pytest
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build images
+        run: |
+          docker build -f docker/app.Dockerfile -t theaterparser-app .
+          docker build -f docker/vpn.Dockerfile -t theaterparser-vpn .
+      - name: Validate generated Xray config
+        run: |
+          link='vless://1b0c2a4e-5f6d-4e3a-9b8c-7d6e5f4a3b2c@vpn.example.com:443?type=tcp&security=reality&pbk=Sa1VYxs4dq1Ze7n4u5mMZbz4Xbwa4V8rAjwJvG6bTDk&sni=www.microsoft.com&sid=ab12&flow=xtls-rprx-vision'
+          docker run --rm --entrypoint sh -e XRAY_LINK="$link" theaterparser-vpn \
+            -c 'python3 /opt/xray_config.py "$XRAY_LINK" > /tmp/c.json && xray run -test -c /tmp/c.json'
